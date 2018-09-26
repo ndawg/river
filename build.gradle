@@ -1,0 +1,38 @@
+buildscript {
+	ext.kotlin_version = '1.3.20-dev-165'
+	repositories {
+		jcenter()
+		maven { url "https://dl.bintray.com/kotlin/kotlin-dev/" }
+		maven { url "https://dl.bintray.com/kotlin/kotlin-eap/" }
+	}
+	dependencies { classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version" }
+}
+
+group 'ndawg'
+version '1.0'
+description 'A context based event system.'
+
+apply plugin: 'kotlin'
+
+repositories {
+	mavenCentral()
+	maven { url "https://dl.bintray.com/kotlin/kotlin-dev/" }
+	maven { url "https://dl.bintray.com/kotlin/kotlin-eap/" }
+}
+
+dependencies {
+	compile project(':nlog')
+	
+	compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+	compile "org.jetbrains.kotlinx:kotlinx-coroutines-core:0.26.1-eap13"
+	compile "org.jetbrains.kotlinx:atomicfu-common:0.11.7"
+	
+	testCompile 'io.kotlintest:kotlintest:2.0.7'
+}
+
+
+task demo(type: JavaExec) {
+	dependsOn build
+	main = "ndawg.TestKt"
+	classpath = sourceSets.main.runtimeClasspath
+}
