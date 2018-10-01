@@ -11,15 +11,6 @@ import nom.codes.NLog
 import java.time.Duration
 import java.time.Instant
 
-//@JvmName("sampleSet")
-//fun sample(function: () -> Set<Any>) {}
-//fun sample(function: () -> Any) {}
-//
-//fun main(args: Array<String>) {
-//	sample { setOf() }
-//	sample { "" }
-//}
-
 class RiverTests : StringSpec({
 	
 	NLog.init()
@@ -75,7 +66,7 @@ class RiverTests : StringSpec({
 		}
 		
 		runBlocking {
-			river.submit(Any()).await()
+			river.submit(Any())
 			received shouldBe true
 		}
 	}
@@ -91,7 +82,7 @@ class RiverTests : StringSpec({
 		river.listen<Any>(priority = RiverPriority.HIGH.value) { received += "b" }
 		
 		runBlocking {
-			river.submit(Any()).await()
+			river.submit(Any())
 			received shouldBe listOf("a", "b", "c", "d", "e")
 		}
 	}
@@ -131,10 +122,10 @@ class RiverTests : StringSpec({
 		}
 		
 		runBlocking {
-			river.submit(SampleEvent("hello")).await()
+			river.submit(SampleEvent("hello"))
 			received shouldBe false
 			
-			river.submit(SampleEvent("hi")).await()
+			river.submit(SampleEvent("hi"))
 			received shouldBe true
 		}
 	}
@@ -145,7 +136,7 @@ class RiverTests : StringSpec({
 		
 		river.listen<Any> { received = true }
 		runBlocking {
-			river.submit("").await()
+			river.submit("")
 			received shouldBe true
 		}
 	}
@@ -161,7 +152,7 @@ class RiverTests : StringSpec({
 			}
 		}
 		runBlocking {
-			river.submit("").join()
+			river.submit(Any())
 			// When the task is rejoined, received should have already been assigned. If not, the tasks
 			// are not being properly waited on.
 			received shouldBe true
@@ -180,7 +171,7 @@ class RiverTests : StringSpec({
 			}
 		}
 		runBlocking {
-			river.submit("").await()
+			river.submit(Any())
 			Duration.between(start, Instant.now()) should { it < Duration.ofSeconds(2) }
 		}
 	}
@@ -191,7 +182,7 @@ class RiverTests : StringSpec({
 		
 		river.listen<Any> { throw DummyError() }
 		runBlocking {
-			shouldThrow<DummyError> { river.submit(Any()).await() }
+			shouldThrow<DummyError> { river.submit(Any()) }
 		}
 	}
 	
@@ -205,7 +196,7 @@ class RiverTests : StringSpec({
 		river.listen<Any>(priority=50) { throw DummyError() }
 		river.listen<Any>(priority=10) { reached = true }
 		runBlocking {
-			shouldThrow<DummyError> { river.submit(Any()).await() }
+			shouldThrow<DummyError> { river.submit(Any()) }
 			reached shouldBe false
 		}
 	}
@@ -217,10 +208,10 @@ class RiverTests : StringSpec({
 		river.listen<Any>(once=true) { run++ }
 		
 		runBlocking {
-			river.submit(Any()).await()
+			river.submit(Any())
 			run shouldBe 1
 			
-			river.submit(Any()).await()
+			river.submit(Any())
 			run shouldBe 1
 		}
 	}
@@ -232,10 +223,10 @@ class RiverTests : StringSpec({
 		river.listen<Any>(once=false) { run++ }
 		
 		runBlocking {
-			river.submit(Any()).await()
+			river.submit(Any())
 			run shouldBe 1
 			
-			river.submit(Any()).await()
+			river.submit(Any())
 			run shouldBe 2
 		}
 	}
