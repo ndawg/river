@@ -25,7 +25,7 @@ class RiverTypeMappers {
 				try {
 					objs.addAll(it.invoke(input))
 				} catch (e: Throwable) {
-					log().error(e) { "TypeMapper $it failed when given $input" }
+					log().error(e) { "Type mapper $it failed when given $input" }
 				}
 			}
 		}

@@ -3,13 +3,16 @@ package ndawg.river
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.newSingleThreadContext
+import kotlinx.coroutines.withContext
 import ndawg.log.log
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Main event loop class.
+ * River is a simple and general purpose event system. Any object can be an event, meaning it can
+ * be both dispatched and listened for. Dispatching is done using coroutines, and, likewise, event handlers
+ * run in a suspension context. Events can be submitted using [submit], and listened to using [listen].
  */
 class River : CoroutineScope {
 	
@@ -22,14 +25,14 @@ class River : CoroutineScope {
 		get() = executor
 	
 	/**
-	 * Dispatches the event to all registered listeners that want it. Dispatching is done
-	 * on executor thread.
+	 * Dispatches the event to all registered listeners that want it. This method returns
+	 * immediately and uses a coroutine to dispatch to each listener. The returned result
+	 * is complete when all handlers have fired.
 	 *
 	 * @param event The event to dispatch.
 	 */
-	fun submit(event: Any) = async(executor) {
-		// TODO evaluate spawning of child coroutines within invocation
-		val inv = RiverInvocation(this, event, getInvolved(event))
+	suspend fun submit(event: Any) = withContext(executor) {
+		val inv = RiverInvocation(this@River, this, event, getInvolved(event))
 		val wants = mutableSetOf<RiverListener<Any>>()
 		
 		// Find listeners that are interested in the event.
@@ -49,6 +52,7 @@ class River : CoroutineScope {
 				it.invoke(inv)
 			} catch (e: Throwable) {
 				log().error("Listener $it produced error while handling $event", e)
+				throw e
 			}
 		}
 	}
@@ -70,7 +74,7 @@ class River : CoroutineScope {
 		found.addAll(sub)
 		
 		if (!found.isEmpty())
-			log().debug("Event $event yielded $found")
+			log().debug { "Event $event yielded $found" }
 		
 		return found
 	}
@@ -81,7 +85,8 @@ class River : CoroutineScope {
 	 *
 	 * @param listener The listener to register.
 	 */
-	fun register(listener: RiverListener<*>) {
+	fun <T : Any> register(listener: RiverListener<T>) {
+		@Suppress("UNCHECKED_CAST")
 		listeners.add(listener as RiverListener<Any>)
 	}
 	
@@ -91,7 +96,7 @@ class River : CoroutineScope {
 	 *
 	 * @param listener The listener to unregister.
 	 */
-	fun unregister(listener: RiverListener<*>) {
+	fun <T : Any> unregister(listener: RiverListener<in T>) {
 		listeners.remove(listener)
 	}
 	
@@ -115,6 +120,7 @@ class River : CoroutineScope {
 	 *
 	 * @param mapper The function that yields objects involved in the event.
 	 */
+	@JvmName("mapMulti")
 	fun <T : Any> map(type: Class<T>, mapper: (T) -> Set<Any>) {
 		mappers.add(type) {
 			if (!type.isInstance(it)) throw IllegalArgumentException("Invalid event type given to mapper, expected type of $type and received $it")
@@ -125,17 +131,23 @@ class River : CoroutineScope {
 	
 	/**
 	 * Establishes a mapping of an event object. The given function will be called when an event
+	 * of the given type (or subtype) is dispatched. The function should supply objects that were involved
+	 * in the event.
+	 *
+	 * @param mapper The function that yields objects involved in the event.
+	 */
+	@JvmName("mapMulti")
+	inline fun <reified T : Any> map(noinline mapper: (T) -> Set<Any>) = map(T::class.java, mapper)
+	
+	/**
+	 * Establishes a mapping of an event object. The given function will be called when an event
 	 * of the given type (or subtype) is dispatched. The function should supply objects that were
 	 * directly involved in the event.
 	 *
 	 * @param mapper The function that yields objects involved in the event.
 	 */
-	fun <T : Any> submap(type: Class<T>, mapper: (T) -> Set<Any>) {
-		mappers.add(type) {
-			if (!type.isInstance(it)) throw IllegalArgumentException("Invalid event type given to mapper, expected type of $type and received $it")
-			@Suppress("UNCHECKED_CAST")
-			mapper(it as T)
-		}
+	fun <T : Any> map(type: Class<T>, mapper: (T) -> Any) {
+		map(type) { setOf(mapper(it)) }
 	}
 	
 	/**
@@ -145,15 +157,52 @@ class River : CoroutineScope {
 	 *
 	 * @param mapper The function that yields objects involved in the event.
 	 */
-	inline fun <reified T : Any> map(noinline mapper: (T) -> Set<Any>) = map(T::class.java, mapper)
+	inline fun <reified T : Any> map(noinline mapper: (T) -> Any) = map(T::class.java, mapper)
 	
 	/**
-	 * Establishes a mapping of an event object. The given function will be called when an event
-	 * of the given type (or subtype) is dispatched. The function should supply objects that were involved
-	 * in the event.
+	 * Establishes a sub-mapping of an event object that re-processes involved objects from an event and
+	 * generates additional objects that were involved. The given function will be called when an event
+	 * of the given type (or subtype) is dispatched.
 	 *
 	 * @param mapper The function that yields objects involved in the event.
 	 */
+	@JvmName("submapMulti")
+	fun <T : Any> submap(type: Class<T>, mapper: (T) -> Set<Any>) {
+		submaps.add(type) {
+			if (!type.isInstance(it)) throw IllegalArgumentException("Invalid event type given to mapper, expected type of $type and received $it")
+			@Suppress("UNCHECKED_CAST")
+			mapper(it as T)
+		}
+	}
+	
+	/**
+	 * Establishes a sub-mapping of an event object that re-processes involved objects from an event and
+	 * generates additional objects that were involved. The given function will be called when an event
+	 * of the given type (or subtype) is dispatched.
+	 *
+	 * @param mapper The function that yields objects involved in the event.
+	 */
+	@JvmName("submapMulti")
 	inline fun <reified T : Any> submap(noinline mapper: (T) -> Set<Any>) = submap(T::class.java, mapper)
+	
+	/**
+	 * Establishes a sub-mapping of an event object that re-processes involved objects from an event and
+	 * generates additional objects that were involved. The given function will be called when an event
+	 * of the given type (or subtype) is dispatched.
+	 *
+	 * @param mapper The function that yields objects involved in the event.
+	 */
+	fun <T : Any> submap(type: Class<T>, mapper: (T) -> Any) {
+		submap(type) { setOf(mapper(it)) }
+	}
+	
+	/**
+	 * Establishes a sub-mapping of an event object that re-processes involved objects from an event and
+	 * generates additional objects that were involved. The given function will be called when an event
+	 * of the given type (or subtype) is dispatched.
+	 *
+	 * @param mapper The function that yields objects involved in the event.
+	 */
+	inline fun <reified T : Any> submap(noinline mapper: (T) -> Any) = submap(T::class.java, mapper)
 	
 }
