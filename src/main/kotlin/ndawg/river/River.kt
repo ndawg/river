@@ -25,9 +25,10 @@ class River : CoroutineScope {
 		get() = executor
 	
 	/**
-	 * Dispatches the event to all registered listeners that want it. This method returns
-	 * immediately and uses a coroutine to dispatch to each listener. The returned result
-	 * is complete when all handlers have fired.
+	 * Dispatches the event to all registered listeners that want it. This method dispatches
+	 * immediately, and suspends on each registered handler as necessary. Errors from handlers are
+	 * re-thrown directly. If any handler throws an error, dispatching is halted (no more listeners
+	 * will receive the event).
 	 *
 	 * @param event The event to dispatch.
 	 */
@@ -107,10 +108,8 @@ class River : CoroutineScope {
 	 * @param owner The owner to unregister by.
 	 * @return Whether anything was unregistered.
 	 */
-	fun unregister(owner: Any?): Boolean {
-		return listeners.removeIf {
-			(owner != null && it.owner == owner)
-		}
+	fun unregister(owner: Any): Boolean {
+		return listeners.removeIf { it.owner.get() == owner }
 	}
 	
 	/**

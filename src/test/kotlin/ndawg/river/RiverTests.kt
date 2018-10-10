@@ -21,7 +21,7 @@ class RiverTests : StringSpec({
 		val dummy = Any()
 		
 		val listener = RiverListenerBuilder(river).from(this).to(dummy).on<Any> {}
-		listener.owner shouldBe this
+		listener.owner.get() shouldBe this
 		listener.listening should { dummy in it }
 		listener.type shouldBe Any::class.java
 		listener.priority shouldBe RiverPriority.NORMAL.value
@@ -31,11 +31,18 @@ class RiverTests : StringSpec({
 		val river = River()
 		val dummy = Any()
 		
-		val listener = river.listen<Any>(from = this, to = listOf(dummy)) {}
-		listener.owner shouldBe this
+		val listener = river.listener<Any>(from = this, to = listOf(dummy)) {}
+		listener.owner.get() shouldBe this
 		listener.listening should { dummy in it }
 		listener.type shouldBe Any::class.java
 		listener.priority shouldBe RiverPriority.NORMAL.value
+	}
+	
+	"unregister by owner" {
+		val river = River()
+		val dummy = Any()
+		river.listen<Any>(from = dummy) {}
+		river.unregister(owner = dummy) shouldBe true
 	}
 	
 	"wants with correct type" {

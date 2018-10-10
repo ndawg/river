@@ -1,9 +1,10 @@
 package ndawg.river
 
 import ndawg.log.log
+import java.lang.ref.WeakReference
 
 data class RiverListener<T : Any>(val type: Class<T>,
-                                  val owner: Any,
+                                  val owner: WeakReference<Any>,
                                   val listening: Set<Any>,
                                   val priority: Int = 0,
                                   private val once: Boolean = false,
@@ -31,7 +32,7 @@ data class RiverListener<T : Any>(val type: Class<T>,
 
 class RiverListenerBuilder(val manager: River) {
 	
-	var owner: Any? = null
+	var owner: Any = manager
 	val involving = mutableSetOf<Any>()
 	var once = false
 	var priority: Int = 0
@@ -117,7 +118,7 @@ class RiverListenerBuilder(val manager: River) {
 		
 		log().info { "Registering listener {type=${T::class.java}, owner=${this}}" }
 		
-		val listener = RiverListener(T::class.java, owner ?: this, involving, priority, once, filters, transformHandler(handler))
+		val listener = RiverListener(T::class.java, WeakReference(owner), involving, priority, once, filters, transformHandler(handler))
 		manager.register(listener)
 		return listener
 	}
@@ -144,7 +145,7 @@ inline fun <reified T : Any> River.listener(from: Any = this,
                                             priority: Int = 0,
                                             once: Boolean = false,
                                             noinline handler: suspend RiverInvocation<T>.(T) -> Unit): RiverListener<T> {
-	return RiverListener(T::class.java, from, to.toSet(), priority, once, listOf(generateInvolvementFilter(to)), transformHandler(handler))
+	return RiverListener(T::class.java, WeakReference(from), to.toSet(), priority, once, listOf(generateInvolvementFilter(to)), transformHandler(handler))
 }
 
 /**
