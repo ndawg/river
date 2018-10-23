@@ -1,10 +1,8 @@
 package ndawg.river
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.withContext
-import ndawg.log.log
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
@@ -16,6 +14,7 @@ import kotlin.coroutines.CoroutineContext
  */
 class River : CoroutineScope {
 	
+	@Suppress("EXPERIMENTAL_API_USAGE")
 	private val executor = newSingleThreadContext("river")
 	private val mappers = RiverTypeMappers()
 	private val submaps = RiverTypeMappers()
@@ -39,8 +38,10 @@ class River : CoroutineScope {
 		// Find listeners that are interested in the event.
 		listeners.forEach {
 			try {
-				if (it.wants(inv))
+				if (it.wants(inv)) {
 					wants.add(it)
+					log().debug { "Listener $it wants $event" }
+				}
 			} catch (e: Throwable) {
 				log().error(e) { "Listener $e produced error while checking $event" }
 			}
@@ -49,7 +50,7 @@ class River : CoroutineScope {
 		// Sort by priority then dispatch in order.
 		wants.sortedBy { -it.priority }.forEach {
 			try {
-				log().trace("Dispatching $event to $it")
+				log().debug { "Dispatching $event to $it" }
 				it.invoke(inv)
 			} catch (e: Throwable) {
 				log().error(e) { "Listener $it produced error while handling $event" }
@@ -137,7 +138,7 @@ class River : CoroutineScope {
 	 */
 	@JvmName("mapMulti")
 	inline fun <reified T : Any> map(noinline mapper: (T) -> Set<Any>) = map(T::class.java, mapper)
-	
+
 //	/**
 //	 * Establishes a mapping of an event object. The given function will be called when an event
 //	 * of the given type (or subtype) is dispatched. The function should supply objects that were
@@ -183,7 +184,7 @@ class River : CoroutineScope {
 	 */
 	@JvmName("submapMulti")
 	inline fun <reified T : Any> submap(noinline mapper: (T) -> Set<Any>) = submap(T::class.java, mapper)
-	
+
 //	/**
 //	 * Establishes a sub-mapping of an event object that re-processes involved objects from an event and
 //	 * generates additional objects that were involved. The given function will be called when an event

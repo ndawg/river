@@ -1,7 +1,5 @@
 package ndawg.river
 
-import ndawg.log.log
-
 typealias RiverTypeMapper = (Any) -> Set<Any>
 
 class RiverTypeMappers {
@@ -23,7 +21,9 @@ class RiverTypeMappers {
 		mappers.filter { it.key.isAssignableFrom(input::class.java) }.forEach {
 			it.value.forEach {
 				try {
-					objs.addAll(it.invoke(input))
+					val produced = it.invoke(input)
+					objs.addAll(produced)
+					log().debug { "Mapper $it produced $produced" }
 				} catch (e: Throwable) {
 					log().error(e) { "Type mapper $it failed when given $input" }
 				}

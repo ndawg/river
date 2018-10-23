@@ -7,18 +7,17 @@ import io.kotlintest.specs.StringSpec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import nom.codes.NLog
 import java.time.Duration
 import java.time.Instant
 
 class RiverTests : StringSpec({
-	
-	NLog.init()
 	open class SampleEvent(val string: String)
 	
 	"listenable creation via builder" {
 		val river = River()
 		val dummy = Any()
+		
+		river.listen() shouldBe RiverListenerBuilder(river)
 		
 		val listener = RiverListenerBuilder(river).from(this).to(dummy).on<Any> {}
 		listener.owner.get() shouldBe this

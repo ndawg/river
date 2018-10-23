@@ -1,6 +1,5 @@
 package ndawg.river
 
-import ndawg.log.log
 import java.lang.ref.WeakReference
 
 data class RiverListener<T : Any>(val type: Class<T>,
@@ -13,7 +12,7 @@ data class RiverListener<T : Any>(val type: Class<T>,
 	
 	/**
 	 * @param event The event to check.
-	 * @return Whether or not this Listener should receive the given event.
+	 * @return Whether or not this listener should receive the given event.
 	 */
 	fun wants(event: RiverInvocation<*>): Boolean {
 		return this.type.isAssignableFrom(event.event::class.java) && !filters.any { !it.invoke(event as RiverInvocation<T>) }
@@ -115,8 +114,6 @@ class RiverListenerBuilder(val manager: River) {
 		// Hook in the filter for making sure the event involves all objects specified
 		if (involving.isNotEmpty())
 			filters.add(generateInvolvementFilter(involving))
-		
-		log().info { "Registering listener {type=${T::class.java}, owner=${this}}" }
 		
 		val listener = RiverListener(T::class.java, WeakReference(owner), involving, priority, once, filters, transformHandler(handler))
 		manager.register(listener)
