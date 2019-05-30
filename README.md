@@ -8,7 +8,7 @@ paradigm - events are submitted and listeners decide if action needs to be taken
 
 Consider a chat system. To listen for a chat message, all you would need is a simple setup like this:
 ```kotlin
-data class Author(val id: Int)
+data class Author(val name: String)
 data class Message(val author: Author, val message: String)
 
 val river = River()
@@ -17,8 +17,8 @@ river.listen<Message> {
 	println("Got the message: ${it.message}")
 }
 
-// prints "Got the message"
-river.submit(ChatMessage(Author("ndawg"), "Hello, world!"))
+// prints "Got the message: Hello, world!"
+river.submit(Message(Author("ndawg"), "Hello, world!"))
 ```
 
 **Mapping**
