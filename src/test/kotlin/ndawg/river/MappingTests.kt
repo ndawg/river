@@ -36,6 +36,19 @@ class MappingTests {
 	}
 	
 	/**
+	 * Verifies that multiple mappers of the same type will be processed correctly,
+	 * each yielding their own mapping.
+	 */
+	@Test
+	fun `multiple mappers of the same type`() {
+		val river = River()
+		river.map<SampleEvent> { setOf(it.string) }
+		river.map<SampleEvent> { setOf(it.string.toUpperCase()) }
+		
+		river.getInvolved(SampleEvent("hi")) shouldBe setOf("hi", "HI")
+	}
+	
+	/**
 	 * Verifies that the mapping of the type SampleEvent is also called when a
 	 * subtype is dispatched, in this case SubSampleEvent.
 	 */
@@ -72,7 +85,7 @@ class MappingTests {
 		val ev = Any()
 		river.getInvolved(ev) shouldBe setOf(ev)
 		
-		// TODO ensure that `map` only gets called once? would require River()
+		// TODO ensure that `map` only gets called once? would require River() spy
 	}
 	
 	/**

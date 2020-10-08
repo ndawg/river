@@ -3,12 +3,18 @@ package ndawg.river
 import kotlinx.coroutines.*
 import mu.KotlinLogging
 import java.io.Closeable
+import java.lang.Runnable
 import kotlin.reflect.KClass
 
 /**
  * River is a simple and general purpose event system. Any object can be an event, meaning it can
  * be both dispatched and listened for. Dispatching is done using coroutines, and, likewise, event handlers
  * run in a suspension context. Events can be submitted using [submit], and listened to using [listen].
+ *
+ * When a listener runs a suspending operation, River's coroutine context is freed up to begin processing more
+ * events again. This requires some care on the listener's part. It is possible that an assumption made about the
+ * application's state at the start of a listener might not remain true throughout. If state consistency is important,
+ * then `runBlocking` should be used to block the entire event loop.
  */
 @Suppress("EXPERIMENTAL_API_USAGE") // for the executor
 class River(private val executor: CoroutineDispatcher? = newSingleThreadContext("river")) {
@@ -206,7 +212,7 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * **Examples:**
 	 * - A user that has a UUID. The UUID would be setup as the identity, so the user object is irrelevant.
 	 * - A session object corresponding to a certain user may be created or destroyed throughout an application's lifecycle,
-	 * so listening to the session itself isn't a good solution. The session's _identity_ can be specified to be the user's ID.
+	 * so listening to the session itself isn't a good solution. The session's identity can be specified to be the user's ID.
 	 *
 	 * This identity correspondence replaces any other mapping for the given type. That is to say that you should probably
 	 * not be mapping items that will be directly emitted into the River, but rather subtypes that appear in event data.
@@ -226,7 +232,7 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * **Examples:**
 	 * - A user that has a UUID. The UUID would be setup as the identity, so the user object is irrelevant.
 	 * - A session object corresponding to a certain user may be created or destroyed throughout an application's lifecycle,
-	 * so listening to the session itself isn't a good solution. The session's _identity_ can be specified to be the user's ID.
+	 * so listening to the session itself isn't a good solution. The session's identity can be specified to be the user's ID.
 	 *
 	 * This identity correspondence replaces any other mapping for the given type. That is to say that you should probably
 	 * not be mapping items that will be directly emitted into the River, but rather subtypes that appear in event data.

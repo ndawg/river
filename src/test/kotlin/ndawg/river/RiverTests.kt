@@ -177,7 +177,7 @@ class GeneralTests {
 	 * break the scope of the River.
 	 */
 	@Test
-	fun `error in mapper doesnt break scope`() {
+	fun `error in mapper doesn't break scope`() {
 		val river = River()
 		
 		river.map<String> { throw IllegalStateException() }

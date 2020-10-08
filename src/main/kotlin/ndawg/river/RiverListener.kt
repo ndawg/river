@@ -6,17 +6,20 @@ import kotlin.reflect.full.isSuperclassOf
 
 /**
  * A type alias representing the receiver of an event. The handler executes within the context of the
- * invocation (ie `this` refers to the invocation in the lambda), and it passes the event as a parameter
+ * invocation (ie `this` refers to the [RiverInvocation] in the lambda), and it passes the event as a parameter
  * (ie `it` refers to the event itself).
  */
 typealias RiverReceiver<T> = suspend RiverInvocation<T>.(T) -> Unit
 
+/**
+ * A data class which contains all of the necessary elements for a single registered listener.
+ */
 data class RiverListener<T : Any>(
-	val type: KClass<T>,
+	internal val type: KClass<T>,
 	private val _owner: WeakReference<Any>,
 	// TODO remove, it's within a filter
-	val listening: Set<Any>,
-	val priority: Int = 0,
+	internal val listening: Set<Any>,
+	internal val priority: Int = 0,
 	private val once: Boolean = false,
 	private val filters: List<(RiverInvocation<T>) -> Boolean>,
 	private val consumer: RiverReceiver<T>
@@ -30,7 +33,7 @@ data class RiverListener<T : Any>(
 	 */
 	fun wants(invocation: RiverInvocation<*>): Boolean {
 		@Suppress("UNCHECKED_CAST")
-		return this.type.isSuperclassOf(invocation.event::class) && !filters.any { !it.invoke(invocation as RiverInvocation<T>) }
+		return this.type.isSuperclassOf(invocation.event::class) && filters.all { it.invoke(invocation as RiverInvocation<T>) }
 	}
 	
 	/**
@@ -94,6 +97,15 @@ class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass
 		return this
 	}
 	
+	fun involving(builder: InvolvementBuilder.() -> InvolvementFilter): RiverListenerBuilder<T> {
+		builder.invoke(InvolvementBuilder { objs ->
+			objs.mapTo(mutableSetOf()) {
+				manager.mappers.identity(it) ?: it
+			}
+		})
+		return this
+	}
+	
 	/**
 	 * Adds a filter to this listener. The listener will only receive an event if
 	 * the given condition returns true.
@@ -151,6 +163,64 @@ class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass
 		return RiverListener(type, WeakReference(owner), involving, priority, once, filters.toList(), handler)
 	}
 	
+}
+
+/**
+ * A filter to represent anything that can prevent a RiverListener from
+ * receiving an event instance.
+ */
+interface RiverFilter<T : Any> {
+	fun shouldReceive(invocation: RiverInvocation<T>): Boolean
+}
+
+/**
+ * A simple abstraction on a RiverFilter that filters based on objects that are
+ * involved in the RiverInvocation.
+ */
+interface InvolvementFilter: RiverFilter<Any> {
+	
+	fun containsRequired(involved: Set<Any>): Boolean
+	
+	override fun shouldReceive(invocation: RiverInvocation<Any>) =
+		containsRequired(invocation.involved)
+	
+}
+
+/**
+ * Combines multiple InvolvementFilter instances into one.
+ */
+class InvolvementFilters(val filters: List<InvolvementFilter>): InvolvementFilter {
+	override fun containsRequired(involved: Set<Any>): Boolean {
+		return filters.all { it.containsRequired(involved) }
+	}
+}
+
+class InvolvementBuilder(val identityMapper: (Set<Any>) -> Set<Any>) {
+	
+	private val filters = mutableListOf<InvolvementFilter>()
+	
+	fun all(objs: Collection<Any>): InvolvementFilter = AllInvolved(identityMapper(objs.toSet()))
+	fun any(objs: Collection<Any>): InvolvementFilter = AnyInvolved(identityMapper(objs.toSet()))
+	
+	fun all(vararg objs: Any): InvolvementFilter = all(objs.toSet())
+	fun any(vararg objs: Any): InvolvementFilter = any(objs.toSet())
+	
+	fun build() = InvolvementFilters(filters)
+	
+	fun InvolvementFilter.plus(other: InvolvementFilter): InvolvementFilter {
+		return this
+	}
+	
+}
+
+class AnyInvolved(val objs: Set<Any>): InvolvementFilter {
+	override fun containsRequired(involved: Set<Any>) =
+		objs.any { it in involved }
+}
+
+class AllInvolved(val objs: Set<Any>): InvolvementFilter {
+	override fun containsRequired(involved: Set<Any>) =
+		involved.containsAll(objs)
 }
 
 /**

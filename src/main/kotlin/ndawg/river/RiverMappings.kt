@@ -2,17 +2,18 @@ package ndawg.river
 
 import mu.KotlinLogging
 import kotlin.reflect.KClass
-import kotlin.reflect.full.allSupertypes
+import kotlin.reflect.full.allSuperclasses
 import kotlin.reflect.full.isSuperclassOf
 import kotlin.reflect.full.superclasses
 
 data class RiverTypeMapper(val func: (Any) -> Set<Any?>)
 
-// TODO for efficiency avoid set operations where necessary
+/**
+ * Manages mappings for types.
+ */
 class RiverTypeMappers {
 	
 	private val logger = KotlinLogging.logger {}
-	// TODO for efficiency this could probably be a tree of some sort
 	private val mappers = mutableMapOf<KClass<*>, MutableSet<RiverTypeMapper>>()
 	private val identities = mutableMapOf<KClass<*>, (Any) -> Any>()
 	
@@ -52,6 +53,7 @@ class RiverTypeMappers {
 	 * Produces the identity from the input, returning null if there is no alternative identity
 	 * to be provided.
 	 */
+	// TODO why just immedaite supertypes?
 	fun identity(input: Any): Any? {
 		// Check exact type.
 		val exact = identities[input::class]
@@ -70,54 +72,78 @@ class RiverTypeMappers {
 	/**
 	 * Returns mappers that can handle the given type.
 	 */
-	private fun getPossibleMappers(type: KClass<*>): Map<KClass<*>, MutableSet<RiverTypeMapper>> {
-		// TODO work on the efficiency of this function
-		return mappers.filter { it.key.isSuperclassOf(type) }
-	}
-	
-	private fun <V> getWithSupertype(type: KClass<*>, map: Map<KClass<*>, V>): Set<V> {
-		return map.filter { it.key.isSuperclassOf(type) }.values.toSet()
+	private fun getPossibleMappers(type: KClass<*>): Set<RiverTypeMapper> {
+		val maps = mutableSetOf<RiverTypeMapper>()
+		// This is an attempt at efficiency. The other option here is to check every single
+		// mapper to see if it's a super type. Instead, we can retrieve every superclass and
+		// check it that way, utilizing the O(1) efficiency of the map#contains check.
+		mappers[type]?.let { maps.addAll(it) }
+		
+		type.superclasses.forEach { t ->
+			mappers[t]?.let { maps.addAll(it) }
+		}
+		
+		return maps
 	}
 	
 	private fun produce(input: Any): Set<Any> {
-		// TODO only filter nulls once
-		val result = mutableSetOf<Any>()
+		val result = mutableSetOf<Any?>()
 		
 		// A set of elements that have already been mapped, kept track of to avoid attempting multiple/recursive mappings.
-		val mapped = mutableSetOf<Any>()
+		// Ops: contains
+		val mapped = mutableSetOf<Any?>()
 		// A list of elements that need to be mapped.
-		val toMap = mutableListOf(input)
+		// Ops: remove first (N), add (N)
+		val toMap = mutableSetOf<Any?>(input)
 		
 		while (toMap.isNotEmpty()) {
-			// Map the first element.
-			val element = toMap.removeAt(0)
+			val element = toMap.pop()
+			
+			// Skip nulls and any elements already mapped.
+			// O(1) contains on set
+			if (element == null || mapped.contains(element)) {
+				continue
+			}
+			
 			// Register it as being mapped already.
+			// O(1) add on set
 			mapped.add(element)
 			
 			// Find mappers that can handle the type.
 			val eligible = getPossibleMappers(element::class)
 			
-			eligible.forEach { entry ->
-				entry.value.forEach { mapper ->
-					// Filter out all null products for convenience. This allows mappers to be lazy about
-					// null checking their values.
-					val produced = mapper.func.invoke(element).filterNotNull().map {
-						identity(it) ?: it
+//			eligible.forEach { entry ->
+				eligible.forEach { mapper ->
+					// Don't complain about nulls here - filter out later.
+					// This creates a new collection unnecessarily. Could be optimized.
+					val produced = mapper.func.invoke(element).map {
+						if (it == null) null else identity(it) ?: it
 					}
+					// O(1) add on set
 					result.addAll(produced)
 					
 					logger.debug {
 						"Mapper $mapper received $element and produced: $produced"
 					}
 					
-					// Now we can check each produced and recursively map it. Subtract what has already been mapped.
-					val new = produced.minus(mapped)
-					toMap.addAll(new)
+					// Recursively mapped what was produced (check for already mapped is above).
+					// O(1) add on set
+					toMap.addAll(produced)
 				}
-			}
+//			}
 		}
 		
-		return result
+		// Ditch null. Only do this once to avoid intermediate filtering.
+		result.remove(null)
+		@Suppress("UNCHECKED_CAST")
+		return result as Set<Any>
 	}
 	
+}
+
+fun <T> MutableSet<T>.pop(): T {
+	val it = this.iterator()
+	val v = it.next()
+	it.remove()
+	return v
 }

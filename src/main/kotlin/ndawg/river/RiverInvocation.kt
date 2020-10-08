@@ -38,10 +38,10 @@ class DiscardException(reason: String? = null) : CancellationException(reason)
 /**
  * Data attached to a single dispatch instance that can be mutated by individual listeners.
  * This data is attached to a single invocation, and returned in [RiverResult], which allows an event
- * dispatch to also act like a data pipeline by monitoring what data is rendered.
+ * dispatch to also act like a data pipeline by monitoring what data is produced.
  *
- * Data is organized by two keys: the type of data, and the name (which is optional). If no name is provided,
- * `null` is the name. No data objects can have the same pair of keys.
+ * Data is organized by two keys: the type of data, and the name (which is optional). If no name is provided
+ * then the name is null. No data objects can have the same pair of keys.
  */
 class RiverData(
 	private val entries: MutableMap<DataKey<*>, Any> = mutableMapOf()
