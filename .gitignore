@@ -1,0 +1,15 @@
+# Gradle
+# ------
+.gradle
+gradle/
+build
+
+# IDEA
+# ----
+.idea
+
+# Tests/Logs
+# ----------
+logs/*
+heap/*
+

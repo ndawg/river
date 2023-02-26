@@ -2,7 +2,6 @@ package ndawg.river
 
 import io.kotlintest.shouldBe
 import io.kotlintest.shouldThrow
-import io.kotlintest.shouldThrowAny
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
@@ -30,7 +29,6 @@ class DataTests {
 			val res = river.submit(Any())
 			res.data.get<Int>() shouldBe 123
 			res.data.find<Int>() shouldBe 123
-			
 			// Non-existent key
 			shouldThrow<NoSuchElementException> {
 				res.data.get<Int>("name")

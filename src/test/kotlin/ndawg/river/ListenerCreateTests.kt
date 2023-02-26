@@ -16,7 +16,7 @@ class ListenerCreateTests {
 		
 		val listener = RiverListenerBuilder(river, Any::class).from(this).to(dummy).on { }
 		listener.owner shouldBe this
-		listener.listening shouldContain dummy
+		listener.listening shouldBe setOf(dummy)
 		listener.type shouldBe Any::class
 		listener.priority shouldBe RiverPriority.NORMAL
 	}

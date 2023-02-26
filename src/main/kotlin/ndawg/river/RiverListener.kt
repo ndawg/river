@@ -1,6 +1,5 @@
 package ndawg.river
 
-import java.lang.ref.WeakReference
 import kotlin.reflect.KClass
 import kotlin.reflect.full.isSuperclassOf
 
@@ -12,24 +11,26 @@ import kotlin.reflect.full.isSuperclassOf
 typealias RiverReceiver<T> = suspend RiverInvocation<T>.(T) -> Unit
 
 /**
- * A data class which contains all of the necessary elements for a single registered listener.
+ * An interface representing a filter that decides if an event should be received by
+ * a listener.
+ */
+typealias RiverFilter<T> = (RiverInvocation<T>) -> Boolean
+
+/**
+ * A data class which contains all the necessary elements for a single registered listener.
  */
 data class RiverListener<T : Any>(
 	internal val type: KClass<T>,
-	private val _owner: WeakReference<Any>,
-	// TODO remove, it's within a filter
-	internal val listening: Set<Any>,
+	internal val owner: Any,
 	internal val priority: Int = 0,
-	private val once: Boolean = false,
-	private val filters: List<(RiverInvocation<T>) -> Boolean>,
-	private val consumer: RiverReceiver<T>
+	internal val once: Boolean = false,
+	internal val filters: List<RiverFilter<T>>,
+	internal val consumer: RiverReceiver<T>
 ) {
-	
-	val owner get() = _owner.get()
 	
 	/**
 	 * @param invocation The event invocation to check. This should almost certainly be of the type `RiverInvocation<T>`.
-	 * @return Whether or not this listener should receive the given event.
+	 * @return Whether this listener should receive the given event.
 	 */
 	fun wants(invocation: RiverInvocation<*>): Boolean {
 		@Suppress("UNCHECKED_CAST")
@@ -47,30 +48,38 @@ data class RiverListener<T : Any>(
 	
 }
 
-// TODO immutable instead probably
 /**
- * A builder for listeners. This is the main entry-point for creating listeners and should never be
- * worked around. All [listen] methods use this class.
+ * An immutable builder for listeners. This is the main entry-point for creating
+ * listeners and should never be bypassed. All [listen] methods use this class.
  */
-class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass<T>) {
-	
-	private var owner: Any = manager
-	private val involving = mutableSetOf<Any>()
-	private var once = false
-	private var priority: Int = 0
-	val filters = mutableSetOf<(RiverInvocation<T>) -> Boolean>()
+data class RiverListenerBuilder<T : Any>(
+	// "Immutable" properties
+	private val manager: River,
+	private val type: KClass<T>,
+	// Builder properties
+	private val owner: Any = manager,
+	private val once: Boolean = false,
+	private val priority: Int = 0,
+	private val filters: Set<RiverFilter<T>> = setOf()
+) {
 	
 	/**
 	 * Specifies the owner of the listener being built. This does not impact
 	 * the receiving of the event, but allows shutdown by owner.
 	 *
 	 * @param owner The owner of the listener.
-	 * @return This builder instance.
+	 * @return A new builder instance with the property applied.
 	 */
-	fun from(owner: Any): RiverListenerBuilder<T> {
-		this.owner = owner
-		return this
-	}
+	fun from(owner: Any) = this.copy(owner = owner)
+	
+	/**
+	 * Specifies the objects that should be involved in any event received by
+	 * this listener.
+	 *
+	 * @param objects The objects that should be involved.
+	 * @return A new builder instance with the property applied.
+	 */
+	fun to(objects: Collection<Any>) = this.where(InvolvementFilter(objects.toSet()))
 	
 	/**
 	 * Specifies the objects that should be involved in any event received by
@@ -79,32 +88,7 @@ class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass
 	 * @param objects The objects that should be involved.
 	 * @return This builder instance.
 	 */
-	fun to(vararg objects: Any): RiverListenerBuilder<T> {
-		return to(objects.toList())
-	}
-	
-	/**
-	 * Specifies the objects that should be involved in any event received by
-	 * this listener.
-	 *
-	 * @param objects The objects that should be involved.
-	 * @return This builder instance.
-	 */
-	fun to(objects: Collection<Any>): RiverListenerBuilder<T> {
-		involving.addAll(objects.map {
-			manager.mappers.identity(it) ?: it
-		})
-		return this
-	}
-	
-	fun involving(builder: InvolvementBuilder.() -> InvolvementFilter): RiverListenerBuilder<T> {
-		builder.invoke(InvolvementBuilder { objs ->
-			objs.mapTo(mutableSetOf()) {
-				manager.mappers.identity(it) ?: it
-			}
-		})
-		return this
-	}
+	fun to(vararg objects: Any) = to(objects.toSet())
 	
 	/**
 	 * Adds a filter to this listener. The listener will only receive an event if
@@ -112,33 +96,26 @@ class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass
 	 *
 	 * @param filter The predicate that should return true if the listener wants the event,
 	 * and false otherwise.
-	 * @return This builder instance.
+	 * @return A new builder instance with the property applied.
 	 */
-	fun where(filter: (RiverInvocation<T>) -> Boolean): RiverListenerBuilder<T> {
-		filters.add(filter)
-		return this
-	}
+	fun where(filter: RiverFilter<T>) = this.copy(filters = filters.plus(filter))
 	
 	/**
 	 * Assigns the priority of this listener, which determines when it will receive the event
 	 * with respect to other listeners. High values are executed before low values. The default
 	 * priority is zero.
+	 *
+	 * @return A new builder instance with the property applied.
 	 */
-	fun priority(priority: Int): RiverListenerBuilder<T> {
-		this.priority = priority
-		return this
-	}
+	fun priority(priority: Int) = this.copy(priority = priority)
 	
 	/**
 	 * Configures the listener to be unregistered after receiving a
 	 * single event.
 	 *
-	 * @return This builder instance.
+	 * @return A new builder instance with the property applied.
 	 */
-	fun once(): RiverListenerBuilder<T> {
-		this.once = true
-		return this
-	}
+	fun once() = this.copy(once = true)
 	
 	/**
 	 * The final step in the builder process, which registers this listener.
@@ -148,10 +125,6 @@ class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass
 	 * @return The registered listener instance.
 	 */
 	fun on(handler: RiverReceiver<T>): RiverListener<T> {
-		// Hook in the filter for making sure the event involves all objects specified
-		if (involving.isNotEmpty())
-			filters.add(generateInvolvementFilter(involving))
-		
 		val listener = build(handler)
 		check(manager.register(listener)) {
 			"Listener was not registered"
@@ -159,68 +132,17 @@ class RiverListenerBuilder<T : Any>(private val manager: River, val type: KClass
 		return listener
 	}
 	
-	fun build(handler: RiverReceiver<T>): RiverListener<T> {
-		return RiverListener(type, WeakReference(owner), involving, priority, once, filters.toList(), handler)
+	internal fun build(handler: RiverReceiver<T>): RiverListener<T> {
+		return RiverListener(
+			type = type,
+			owner = owner,
+			priority = priority,
+			once = once,
+			filters = filters.toList(),
+			consumer = handler
+		)
 	}
 	
-}
-
-/**
- * A filter to represent anything that can prevent a RiverListener from
- * receiving an event instance.
- */
-interface RiverFilter<T : Any> {
-	fun shouldReceive(invocation: RiverInvocation<T>): Boolean
-}
-
-/**
- * A simple abstraction on a RiverFilter that filters based on objects that are
- * involved in the RiverInvocation.
- */
-interface InvolvementFilter: RiverFilter<Any> {
-	
-	fun containsRequired(involved: Set<Any>): Boolean
-	
-	override fun shouldReceive(invocation: RiverInvocation<Any>) =
-		containsRequired(invocation.involved)
-	
-}
-
-/**
- * Combines multiple InvolvementFilter instances into one.
- */
-class InvolvementFilters(val filters: List<InvolvementFilter>): InvolvementFilter {
-	override fun containsRequired(involved: Set<Any>): Boolean {
-		return filters.all { it.containsRequired(involved) }
-	}
-}
-
-class InvolvementBuilder(val identityMapper: (Set<Any>) -> Set<Any>) {
-	
-	private val filters = mutableListOf<InvolvementFilter>()
-	
-	fun all(objs: Collection<Any>): InvolvementFilter = AllInvolved(identityMapper(objs.toSet()))
-	fun any(objs: Collection<Any>): InvolvementFilter = AnyInvolved(identityMapper(objs.toSet()))
-	
-	fun all(vararg objs: Any): InvolvementFilter = all(objs.toSet())
-	fun any(vararg objs: Any): InvolvementFilter = any(objs.toSet())
-	
-	fun build() = InvolvementFilters(filters)
-	
-	fun InvolvementFilter.plus(other: InvolvementFilter): InvolvementFilter {
-		return this
-	}
-	
-}
-
-class AnyInvolved(val objs: Set<Any>): InvolvementFilter {
-	override fun containsRequired(involved: Set<Any>) =
-		objs.any { it in involved }
-}
-
-class AllInvolved(val objs: Set<Any>): InvolvementFilter {
-	override fun containsRequired(involved: Set<Any>) =
-		involved.containsAll(objs)
 }
 
 /**

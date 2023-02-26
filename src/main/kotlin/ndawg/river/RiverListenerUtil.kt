@@ -17,12 +17,14 @@ import kotlin.reflect.KClass
  * @param handler The handler which will receive the event. This object will be delegating
  * from the event invocation, and receive the event as the parameter for convenience.
  */
-inline fun <reified T : Any> River.listener(from: Any = this,
-                                            to: Collection<Any> = emptySet(),
-                                            priority: Int = 0,
-                                            once: Boolean = false): RiverListenerBuilder<T> {
-	return RiverListenerBuilder(this, T::class).from(from).to(to).priority(priority).apply {
-		if (once) once()
+inline fun <reified T : Any> River.listener(
+	from: Any = this,
+	to: Collection<Any> = emptySet(),
+	priority: Int = 0,
+	once: Boolean = false
+): RiverListenerBuilder<T> {
+	return RiverListenerBuilder(this, T::class).from(from).to(to).priority(priority).let {
+		if (once) it.once() else it
 	}
 }
 
@@ -53,18 +55,32 @@ inline fun <reified T : Any> River.listener() = RiverListenerBuilder(this, T::cl
  * @param handler The handler which will receive the event. This object will be delegating
  * from the event invocation, and receive the event as the parameter for convenience.
  */
-inline fun <reified T : Any> River.listen(from: Any = this,
-                                          to: Collection<Any> = emptySet(),
-                                          priority: Int = 0,
-                                          once: Boolean = false,
-                                          noinline handler: RiverReceiver<T>): RiverListener<T> {
-	return listener<T>(from, to, priority, once).on(handler)
+inline fun <reified T : Any> River.listen(
+	from: Any = this,
+	to: Collection<Any> = emptySet(),
+	priority: Int = 0,
+	once: Boolean = false,
+	noinline handler: RiverReceiver<T>
+): RiverListener<T> {
+	return listener<T>(from=from, to=to, priority=priority, once=once).on(handler)
 }
 
 /**
- * Creates a filter to make sure the given objects are involved in the event.
+ * An implementation of a [RiverFilter] for the first-class support of [RiverListenerBuilder.on], ie
+ * provides support for only triggering a listener when every entry in [objects] is involved in the
+ * [RiverInvocation] (via [RiverInvocation.involved]).
+ *
+ * See also: [RiverListener.listening], which is possible thanks to this implementation.
  */
-fun <T : Any> generateInvolvementFilter(objects: Collection<Any>): (RiverInvocation<T>) -> Boolean = when {
-	objects.isEmpty() -> { _ -> true }
-	else -> { inv -> inv.involved.containsAll(objects) }
+data class InvolvementFilter<T : Any>(val objects: Set<Any>) : RiverFilter<T> {
+	override fun invoke(inv: RiverInvocation<T>) = inv.involved.containsAll(objects.map {
+		inv.manager.mappers.identity(it) ?: it
+	})
 }
+
+/**
+ * A convenience property that identifies the objects a RiverListener is waiting on.
+ * If no objects are being waited on, an empty set is returned.
+ */
+val <T : Any> RiverListener<T>.listening: Set<Any>
+get() = this.filters.filterIsInstance<InvolvementFilter<T>>().flatMapTo(mutableSetOf() ) { it.objects }

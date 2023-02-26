@@ -3,7 +3,6 @@ package ndawg.river
 import kotlinx.coroutines.*
 import mu.KotlinLogging
 import java.io.Closeable
-import java.lang.Runnable
 import kotlin.reflect.KClass
 
 /**
@@ -17,12 +16,14 @@ import kotlin.reflect.KClass
  * then `runBlocking` should be used to block the entire event loop.
  */
 @Suppress("EXPERIMENTAL_API_USAGE") // for the executor
-class River(private val executor: CoroutineDispatcher? = newSingleThreadContext("river")) {
+class River(
+	private val executor: CoroutineDispatcher? = newSingleThreadContext("river")
+) {
 	
 	private val logger = KotlinLogging.logger {}
 	internal val mappers = RiverTypeMappers()
 	internal val listeners = mutableListOf<RiverListener<out Any>>()
-	val scope = executor?.let { CoroutineScope(executor) } ?: CoroutineScope(SupervisorJob())
+	internal val scope = executor?.let { CoroutineScope(executor) } ?: CoroutineScope(SupervisorJob())
 	
 	/**
 	 * Dispatches the event to all registered listeners that want it. This method dispatches
@@ -47,6 +48,8 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * asynchronously and returns immediately. Errors from handlers are caught in the Deferred
 	 * object. If any handler throws an error, dispatching is halted (no more listeners
 	 * will receive the event).
+	 *
+	 * This method is provided only as a convenience. Use of [submit] is highly preferred.
 	 *
 	 * @param event The event to dispatch.
 	 */
@@ -95,20 +98,21 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * error, it is suppressed and the logger emits a warning to prevent disruption to dispatching.
 	 */
 	@Suppress("UNCHECKED_CAST")
-	private fun <T : Any> getInterested(inv: RiverInvocation<T>): MutableList<RiverListener<T>> {
+	private fun <T : Any> getInterested(inv: RiverInvocation<T>): List<RiverListener<T>> {
 		val event = inv.event
 		val wants = mutableListOf<RiverListener<T>>()
 		
-		// TODO synchronize
-		listeners.forEach {
-			try {
-				if (it.wants(inv)) {
-					wants.add(it as RiverListener<T>)
-					logger.debug { "Listener $it wants $event" }
+		synchronized(listeners) {
+			listeners.forEach {
+				try {
+					if (it.wants(inv)) {
+						wants.add(it as RiverListener<T>)
+						logger.debug { "Listener $it wants $event" }
+					}
+				} catch (e: Throwable) {
+					// Choose not to interrupt if a listener produces an error.
+					logger.warn(e) { "Listener $e produced error while checking $event" }
 				}
-			} catch (e: Throwable) {
-				// Choose not to interrupt if a listener produces an error.
-				logger.warn(e) { "Listener $e produced error while checking $event" }
 			}
 		}
 		
@@ -129,7 +133,7 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 		val found = mappers.map(event)
 		
 		if (found.isNotEmpty())
-			logger.debug { "Event $event yielded $found" }
+			logger.trace { "Event $event yielded $found" }
 		
 		return found
 	}
@@ -139,7 +143,9 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * cannot be undone.
 	 */
 	fun shutdown() {
-		listeners.clear()
+		synchronized(listeners) {
+			listeners.clear()
+		}
 		if (executor is Closeable)
 			executor.close()
 	}
@@ -152,9 +158,11 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * @return Whether or not the listener was registered.
 	 */
 	fun <T : Any> register(listener: RiverListener<T>): Boolean {
-		val add = listeners.add(listener)
-		if (add) listeners.sortBy { -it.priority }
-		return add
+		return synchronized(listeners) {
+			val add = listeners.add(listener)
+			if (add) listeners.sortBy { -it.priority }
+			add
+		}
 	}
 	
 	/**
@@ -164,7 +172,9 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * @param listener The listener to unregister.
 	 */
 	fun <T : Any> unregister(listener: RiverListener<T>): Boolean {
-		return listeners.remove(listener)
+		synchronized(listeners) {
+			return listeners.remove(listener)
+		}
 	}
 	
 	/**
@@ -176,7 +186,9 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 */
 	fun unregister(owner: Any): Boolean {
 		require(owner != this) { "The River instance cannot be unregistered" }
-		return listeners.removeIf { it.owner == owner }
+		synchronized(listeners) {
+			return listeners.removeIf { it.owner == owner }
+		}
 	}
 	
 	/**
@@ -187,11 +199,11 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * @param mapper The function that yields objects involved in the event.
 	 */
 	@JvmName("mapMulti")
-	fun <T : Any> map(type: KClass<T>, mapper: (T) -> Set<Any?>) {
+	fun <T : Any> map(type: KClass<T>, mapper: RiverMappingReceiver.(T) -> Unit) {
 		mappers.addMapper(type, RiverTypeMapper {
 			require(type.isInstance(it)) { "Invalid event type given to mapper, expected type of $type and received $it" }
 			@Suppress("UNCHECKED_CAST")
-			mapper(it as T)
+			mapper.invoke(this, it)
 		})
 	}
 	
@@ -203,7 +215,8 @@ class River(private val executor: CoroutineDispatcher? = newSingleThreadContext(
 	 * @param mapper The function that yields objects involved in the event.
 	 */
 	@JvmName("mapMulti")
-	inline fun <reified T : Any> map(noinline mapper: (T) -> Set<Any?>) = map(T::class, mapper)
+	inline fun <reified T : Any> map(noinline mapper: RiverMappingReceiver.(T) -> Unit) =
+		map(T::class, mapper)
 	
 	/**
 	 * Establishes the identity of a given type of object. Identity is essentially a form of mapping for involvement

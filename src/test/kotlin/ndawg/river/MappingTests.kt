@@ -16,7 +16,7 @@ class MappingTests {
 	@Test
 	fun `simple mapping`() {
 		val river = River()
-		river.map<SampleEvent> { setOf(it.string) }
+		river.map<SampleEvent> { produce(it.string) }
 		
 		river.getInvolved(SampleEvent("hello")) shouldBe setOf("hello")
 		river.getInvolved(Any()) shouldBe emptySet()
@@ -29,8 +29,8 @@ class MappingTests {
 	@Test
 	fun `mapping data yielded by another mapper`() {
 		val river = River()
-		river.map<SampleEvent> { setOf(it.string) }
-		river.map<String> { setOf(it.toUpperCase()) }
+		river.map<SampleEvent> { produce(it.string) }
+		river.map<String> { produce(it.toUpperCase()) }
 		
 		river.getInvolved(SampleEvent("hi")) shouldBe setOf("hi", "HI")
 	}
@@ -42,8 +42,8 @@ class MappingTests {
 	@Test
 	fun `multiple mappers of the same type`() {
 		val river = River()
-		river.map<SampleEvent> { setOf(it.string) }
-		river.map<SampleEvent> { setOf(it.string.toUpperCase()) }
+		river.map<SampleEvent> { produce(it.string) }
+		river.map<SampleEvent> { produce(it.string.toUpperCase()) }
 		
 		river.getInvolved(SampleEvent("hi")) shouldBe setOf("hi", "HI")
 	}
@@ -57,8 +57,8 @@ class MappingTests {
 		val river = River()
 		
 		class SubSampleEvent(val number: Int, string: String) : SampleEvent(string)
-		river.map<SampleEvent> { setOf(it.string) }
-		river.map<SubSampleEvent> { setOf(it.number) }
+		river.map<SampleEvent> { produce(it.string) }
+		river.map<SubSampleEvent> { produce(it.number) }
 		
 		river.getInvolved(SubSampleEvent(5, "hi")) shouldBe setOf(5, "hi")
 	}
@@ -80,7 +80,7 @@ class MappingTests {
 	@Test
 	fun `avoid recursive mapping when yielding self`() {
 		val river = River()
-		river.map<Any> { setOf(it) }
+		river.map<Any> { produce(it) }
 		
 		val ev = Any()
 		river.getInvolved(ev) shouldBe setOf(ev)
@@ -113,8 +113,8 @@ class MappingTests {
 		class EventB(val a: EventA)
 		val river = River()
 		
-		river.map<EventA> { setOf(EventB(it)) }
-		river.map<EventB> { setOf(it.a) }
+		river.map<EventA> { produce(EventB(it)) }
+		river.map<EventB> { produce(it.a) }
 		
 		val ev = EventA()
 		val involved = river.getInvolved(ev)
@@ -137,9 +137,9 @@ class MappingTests {
 		val evA = EventA()
 		val evB = EventB(evA)
 		
-		river.map<EventA> { setOf(evB) }
-		river.map<EventB> { setOf(it, it.a, EventC(it)) }
-		river.map<EventC> { setOf(it, it.b, it.b.a) }
+		river.map<EventA> { produce(evB) }
+		river.map<EventB> { produce(it, it.a, EventC(it)) }
+		river.map<EventC> { produce(it, it.b, it.b.a) }
 		
 		val involved = river.getInvolved(evA)
 		

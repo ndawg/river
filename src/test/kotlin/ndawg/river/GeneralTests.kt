@@ -26,8 +26,6 @@ class GeneralTests {
 		}
 	}
 	
-	// TODO receives subtype?
-	
 	/**
 	 * Verifies that listeners are correctly unregistered by owner.
 	 */
@@ -68,7 +66,7 @@ class GeneralTests {
 		class SampleEvent(val string: String)
 		
 		val river = River()
-		river.map<SampleEvent> { setOf(it.string) }
+		river.map<SampleEvent> { produce(it.string) }
 		
 		var received = false
 		river.listen<Any>(to = listOf("hi")) {
@@ -200,7 +198,9 @@ class GeneralTests {
 		val river = River()
 		var run = 0
 		
-		val listener = river.listen<Any>(once = true) { run++ }
+		val listener = river.listen<Any>(once = true) {
+			run++
+		}
 		
 		runBlocking {
 			river.submit(Any())
@@ -221,7 +221,7 @@ class GeneralTests {
 		val river = River()
 		var run = 0
 		
-		val listener = river.listen<Any>(once = false) { run++ }
+		val listener = river.listen<Any> { run++ }
 		
 		runBlocking {
 			river.submit(Any())

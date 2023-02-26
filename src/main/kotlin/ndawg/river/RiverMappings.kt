@@ -1,20 +1,41 @@
 package ndawg.river
 
-import mu.KotlinLogging
 import kotlin.reflect.KClass
 import kotlin.reflect.full.allSuperclasses
-import kotlin.reflect.full.isSuperclassOf
-import kotlin.reflect.full.superclasses
 
-data class RiverTypeMapper(val func: (Any) -> Set<Any?>)
+/**
+ * The definition for a non-generic mapper (note that the implementation in
+ * [River.map] provides proper type hints).
+ */
+@JvmInline // prevent heap allocation
+value class RiverTypeMapper<T : Any>(val func: RiverMappingReceiver.(T) -> Unit)
+
+@JvmInline // prevent heap allocation
+value class RiverMappingReceiver(private val receiver: (Any?) -> Unit) {
+	
+	/**
+	 * Produce a single object from the event.
+	 */
+	fun produce(obj: Any?) = this.receiver.invoke(obj)
+	
+	/**
+	 * Produce a list of objects from the event.
+	 */
+	fun produce(vararg objs: Any?) = objs.forEach(receiver)
+	
+	/**
+	 * Produce a list of objects from the event.
+	 */
+	fun produce(objs: Collection<Any?>) = objs.forEach(receiver)
+	
+}
 
 /**
  * Manages mappings for types.
  */
 class RiverTypeMappers {
 	
-	private val logger = KotlinLogging.logger {}
-	private val mappers = mutableMapOf<KClass<*>, MutableSet<RiverTypeMapper>>()
+	private val mappers = mutableMapOf<KClass<*>, MutableSet<RiverTypeMapper<out Any>>>()
 	private val identities = mutableMapOf<KClass<*>, (Any) -> Any>()
 	
 	/**
@@ -24,7 +45,7 @@ class RiverTypeMappers {
 	 * subtypes of the event.
 	 * @param mapper The mapper to invoke when an event is received.
 	 */
-	fun <T : Any> addMapper(type: KClass<T>, mapper: RiverTypeMapper) {
+	fun <T : Any> addMapper(type: KClass<T>, mapper: RiverTypeMapper<T>) {
 		mappers.computeIfAbsent(type) { mutableSetOf() } += mapper
 	}
 	
@@ -53,14 +74,13 @@ class RiverTypeMappers {
 	 * Produces the identity from the input, returning null if there is no alternative identity
 	 * to be provided.
 	 */
-	// TODO why just immedaite supertypes?
 	fun identity(input: Any): Any? {
 		// Check exact type.
 		val exact = identities[input::class]
 		if (exact != null) return exact(input)
 		
 		// Check supertypes.
-		input::class.superclasses.find {
+		input::class.allSuperclasses.firstOrNull {
 			identities[it] != null
 		}?.let {
 			return identities[it]!!(input)
@@ -72,14 +92,14 @@ class RiverTypeMappers {
 	/**
 	 * Returns mappers that can handle the given type.
 	 */
-	private fun getPossibleMappers(type: KClass<*>): Set<RiverTypeMapper> {
-		val maps = mutableSetOf<RiverTypeMapper>()
-		// This is an attempt at efficiency. The other option here is to check every single
-		// mapper to see if it's a super type. Instead, we can retrieve every superclass and
-		// check it that way, utilizing the O(1) efficiency of the map#contains check.
+	private fun getPossibleMappers(type: KClass<*>): Set<RiverTypeMapper<*>> {
+		val maps = mutableSetOf<RiverTypeMapper<*>>()
+		
+		// Add the immediate type
 		mappers[type]?.let { maps.addAll(it) }
 		
-		type.superclasses.forEach { t ->
+		// Add all superclasses
+		type.allSuperclasses.forEach { t ->
 			mappers[t]?.let { maps.addAll(it) }
 		}
 		
@@ -95,6 +115,22 @@ class RiverTypeMappers {
 		// A list of elements that need to be mapped.
 		// Ops: remove first (N), add (N)
 		val toMap = mutableSetOf<Any?>(input)
+		
+		// The object that will receive mapped values from producers
+		// This is done to prevent creating collections all over the place
+		val receiver = RiverMappingReceiver {
+			if (it != null) {
+				// Store the result, mapping to an identity if necessary
+				// O(1) add on set
+				result.add(identity(it) ?: it)
+				
+				// Recursively mapped what was produced, WITHOUT mapping to identity
+				// This allows the recursive mapping process to continue, but identity
+				// will still be stored in the result.
+				// O(1) add on set
+				toMap.add(it)
+			}
+		}
 		
 		while (toMap.isNotEmpty()) {
 			val element = toMap.pop()
@@ -112,25 +148,12 @@ class RiverTypeMappers {
 			// Find mappers that can handle the type.
 			val eligible = getPossibleMappers(element::class)
 			
-//			eligible.forEach { entry ->
-				eligible.forEach { mapper ->
-					// Don't complain about nulls here - filter out later.
-					// This creates a new collection unnecessarily. Could be optimized.
-					val produced = mapper.func.invoke(element).map {
-						if (it == null) null else identity(it) ?: it
-					}
-					// O(1) add on set
-					result.addAll(produced)
-					
-					logger.debug {
-						"Mapper $mapper received $element and produced: $produced"
-					}
-					
-					// Recursively mapped what was produced (check for already mapped is above).
-					// O(1) add on set
-					toMap.addAll(produced)
-				}
-//			}
+			eligible.forEach { mapper ->
+				// Invoke the function, which will utilize the receiver defined above
+				// to funnel items into collections
+				@Suppress("UNCHECKED_CAST")
+				(mapper as RiverTypeMapper<Any>).func.invoke(receiver, element)
+			}
 		}
 		
 		// Ditch null. Only do this once to avoid intermediate filtering.
@@ -141,7 +164,10 @@ class RiverTypeMappers {
 	
 }
 
-fun <T> MutableSet<T>.pop(): T {
+/**
+ * Implements a pop operation for a MutableSet in constant time.
+ */
+private fun <T> MutableSet<T>.pop(): T {
 	val it = this.iterator()
 	val v = it.next()
 	it.remove()
